@@ -1,5 +1,5 @@
 
-# WhatsApp Bulk Sender GUI: Automatización de Mensajería Personalizada
+# WhatsApp Bulk Sender GUI (AuraSend): Automatización de Mensajería Personalizada
 
 ## Introducción
 
@@ -89,3 +89,9 @@ Hola buenas tardes {nombre}, te está atendiendo {minombre} de la {miempresa}, e
 * **Gestión de Errores:** Aunque el script incluye manejo básico de errores, factores externos (conectividad de red, cambios inesperados en WhatsApp Web, interrupciones del sistema) pueden generar fallos. Revise el log para obtener información detallada sobre cualquier problema.
 * **Finalidad de Uso:** Esta herramienta está diseñada para facilitar comunicaciones legítimas y consentidas. No debe utilizarse para la distribución de spam, mensajes no solicitados o cualquier actividad que viole la privacidad o las normativas aplicables.
 * **Independencia:** Este proyecto es una herramienta independiente y no está afiliado, respaldado ni patrocinado por WhatsApp, Meta Platforms, Inc., o sus subsidiarias.
+
+### Compilar
+Puede compilar la aplicación instalando pyinstaller y usando el siguiente comando
+```bash
+pyinstaller --windowed --name="WhatsApp Bulk Sender" --ico="img/AuraSend.ico" main.py
+```
