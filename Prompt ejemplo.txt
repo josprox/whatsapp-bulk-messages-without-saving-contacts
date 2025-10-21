@@ -1,0 +1,1 @@
+Hola buenas tardes {nombre}, te está atendiendo {minombre} de la {miempresa}, el motivo de este mensaje es para recordarle de la materia {nombre_materia}, pues con esta inscripción, ya la estaría cursando {numveces} veces, en caso de alguna aclaración, comuniquese directamente con su director de carrera.
