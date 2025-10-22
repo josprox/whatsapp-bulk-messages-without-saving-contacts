@@ -143,7 +143,7 @@ class SenderWorker(QObject):
                 # Envío Selenium
                 message_sent_successfully = False
                 try:
-                    url = f'https://web.whatsapp.com/send?phone={numero_dest}&text={encoded_message}'
+                    url = f'https://web.whatsapp.com/send?phone=+52 1 {numero_dest}&text={encoded_message}'
                     self.driver.get(url)
                     chat_input_xpath = "//div[@contenteditable='true'][@data-tab='10'] | //div[@contenteditable='true'][@data-tab='1']"
                     try:
