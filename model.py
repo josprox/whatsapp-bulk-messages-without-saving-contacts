@@ -184,13 +184,32 @@ class SenderWorker(QObject):
                     self.log_message.emit(f"Error: Número '{numero_dest}' inválido línea {i+1}. Saltando...")
                     self._log_failure(numero_dest, nombre_dest, "Número inválido", f"Línea {i+1} del archivo") # Log
                     count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
+                
+                # Formatear y codificar el número de teléfono
+                encoded_phone = ""
+                if len(numero_dest) == 10:
+                    # Formato deseado: 56 4446 4018
+                    part1 = numero_dest[0:2]
+                    part2 = numero_dest[2:6]
+                    part3 = numero_dest[6:10]
+                    # String completa: +52 1 56 4446 4018
+                    full_phone_string = f"+52 1 {part1} {part2} {part3}"
+                    
+                    # Codificar para URL: +52%201%2056%204446%204018
+                    encoded_phone = quote(full_phone_string)
+                else:
+                    # Plan B: si no tiene 10 dígitos, usar el formato antiguo pero codificado
+                    self.log_message.emit(f"Advertencia: Número {numero_dest} no tiene 10 dígitos. Usando formato de URL anterior.")
+                    encoded_phone = quote(f"{numero_dest}")
 
                 self.log_message.emit(f"[{i+1}/{self.total_messages}] Enviando a {variable_display_name}...")
 
                 # Envío Selenium
                 message_sent_successfully = False
                 try:
-                    url = f'https://web.whatsapp.com/send?phone=+52 1 {numero_dest}&text={encoded_message}'
+                    url = f'https://web.whatsapp.com/send?phone={encoded_phone}'
+                    self.log_message.emit(f"La URL de envío es: {url}")
+                    url = f'{url}&text={encoded_message}'
                     self.driver.get(url)
                     chat_input_xpath = "//div[@contenteditable='true'][@data-tab='10'] | //div[@contenteditable='true'][@data-tab='1']"
                     try:
