@@ -6,6 +6,8 @@ from time import sleep
 from urllib.parse import quote
 import random
 import traceback
+import datetime
+import csv
 
 from PySide6.QtCore import QObject, Signal, Slot, QThread, QMetaObject, Qt
 
@@ -38,11 +40,48 @@ class SenderWorker(QObject):
         self.driver = None
         self.recipients = []
         self.total_messages = 0
+        
+        # --- Añadido para Logs ---
+        self.failure_log = [] # Lista interna (opcional, ya que escribimos directo)
+        self.log_file_path = ""
+        self.logs_dir = os.path.join(os.getcwd(), "logs")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        # --- Fin de añadido ---
+
+    def _log_failure(self, numero, nombre, razon, detalle):
+        """
+        (NUEVO) Registra un fallo en el archivo CSV de forma inmediata.
+        """
+        detalle_str = str(detalle).replace('\n', ' ').replace(';', ',') # Limpiar saltos y delimitador
+        
+        if not self.log_file_path:
+            self.log_message.emit("Error: log_file_path no está definido.")
+            return
+        try:
+            # Usamos 'a' (append) para añadir al archivo existente
+            with open(self.log_file_path, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f, delimiter=';')
+                writer.writerow([numero, nombre, razon, detalle_str])
+        except Exception as e:
+            self.log_message.emit(f"ADVERTENCIA: No se pudo escribir en log: {e}")
 
     @Slot()
     def run_initialization(self):
-        """Inicia el proceso: lee archivo, abre navegador y emite ask_login."""
+        """Inicia el proceso: lee archivo, crea log, abre navegador y emite ask_login."""
         try:
+            # --- Añadido: Crear archivo de log para esta sesión ---
+            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.log_file_path = os.path.join(self.logs_dir, f"log_errores_{timestamp}.csv")
+            try:
+                # Usamos 'w' (write) para crear/sobrescribir el archivo con la cabecera
+                with open(self.log_file_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f, delimiter=';')
+                    writer.writerow(['Numero', 'Nombre', 'Razon_Fallo', 'Detalle_Error'])
+                self.log_message.emit(f"Archivo de log iniciado en: {self.log_file_path}")
+            except Exception as e:
+                self.log_message.emit(f"ADVERTENCIA: No se pudo crear archivo log: {e}")
+            # --- Fin de añadido ---
+
             self.log_message.emit("Leyendo archivo de datos...")
             try:
                 df = pandas.read_csv(
@@ -52,9 +91,8 @@ class SenderWorker(QObject):
                 df.dropna(subset=self.expected_columns, how='all', inplace=True)
                 df.fillna("", inplace=True)
                 if df.empty or df['numero'].eq('').all():
-                     raise ValueError(f"Archivo vacío o 'numero' vacío. Formato: {';'.join(self.expected_columns)};")
+                        raise ValueError(f"Archivo vacío o 'numero' vacío. Formato: {';'.join(self.expected_columns)};")
 
-                # Validación de columnas extras (opcional)
                 # ... (código de validación de columnas si lo deseas) ...
 
                 self.recipients = df.to_dict('records')
@@ -117,6 +155,9 @@ class SenderWorker(QObject):
                 # Preparar variables
                 current_vars = self.static_vars.copy()
                 numero_dest = str(recipient.get('numero', '')).strip()
+                # --- Añadido: Obtener nombre para log ---
+                nombre_dest = str(recipient.get('nombre', '')).strip() 
+                # --- Fin de añadido ---
                 variable_display_name = numero_dest
                 missing_vars_msg = ""
                 for col_name in self.dynamic_file_columns:
@@ -124,7 +165,9 @@ class SenderWorker(QObject):
                     value_str = str(value).strip() if value is not None else ""
                     current_vars[col_name] = value_str
                     if not value_str and value is None: missing_vars_msg += f"{col_name}, "
-                    if col_name.lower() == 'nombre' and value_str: variable_display_name = f"{numero_dest} ({value_str})"
+                    if col_name.lower() == 'nombre' and value_str: 
+                        variable_display_name = f"{numero_dest} ({value_str})"
+                        # nombre_dest = value_str # Ya lo obtuvimos arriba
                 if missing_vars_msg: self.log_message.emit(f"Advertencia: Faltan datos para '{variable_display_name}' en {missing_vars_msg[:-2]}. Usando vacíos.")
 
                 # Formatear mensaje
@@ -132,11 +175,15 @@ class SenderWorker(QObject):
                 try:
                     message = message.format_map(current_vars); encoded_message = quote(message)
                 except Exception as e:
-                     self.log_message.emit(f"Error formateo msg para {variable_display_name}: {e}. Saltando..."); count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
+                    self.log_message.emit(f"Error formateo msg para {variable_display_name}: {e}. Saltando...")
+                    self._log_failure(numero_dest, nombre_dest, "Error de formato de mensaje", e) # <--- Log
+                    count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
 
                 # Validar número
                 if not numero_dest or not numero_dest.isdigit():
-                    self.log_message.emit(f"Error: Número '{numero_dest}' inválido línea {i+1}. Saltando..."); count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
+                    self.log_message.emit(f"Error: Número '{numero_dest}' inválido línea {i+1}. Saltando...")
+                    self._log_failure(numero_dest, nombre_dest, "Número inválido", f"Línea {i+1} del archivo") # <--- Log
+                    count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
 
                 self.log_message.emit(f"[{i+1}/{self.total_messages}] Enviando a {variable_display_name}...")
 
@@ -150,15 +197,17 @@ class SenderWorker(QObject):
                         WebDriverWait(self.driver, 20).until(EC.presence_of_element_located((By.XPATH, chat_input_xpath)))
                         # self.log_message.emit("... Chat cargado.") # Log opcional
                     except TimeoutException:
-                         try:
+                        try:
                             invalid_number_xpath = "//div[contains(@data-testid, 'popup-controls-ok')]"
                             WebDriverWait(self.driver, 5).until(EC.presence_of_element_located((By.XPATH, invalid_number_xpath)))
                             self.log_message.emit(f"Error: Número {numero_dest} inválido/sin WA (popup).")
+                            self._log_failure(numero_dest, nombre_dest, "Número sin WA (Popup)", "El número no tiene WhatsApp o es inválido.") # <--- Log
                             try: self.driver.find_element(By.XPATH, invalid_number_xpath).click(); sleep(1)
                             except: pass
-                         except TimeoutException:
+                        except TimeoutException:
                             self.log_message.emit(f"Error: No cargó chat para {numero_dest} en 20s.")
-                         count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
+                            self._log_failure(numero_dest, nombre_dest, "Timeout Carga Chat", "No se pudo cargar la ventana de chat en 20s.") # <--- Log
+                        count_failed += 1; self.progress.emit(int(((i + 1) / self.total_messages) * 100)); continue
 
                     try:
                         xpath_send_button = "//button[@aria-label='Enviar'] | //span[@data-icon='send']/ancestor::button | //div[@role='button'][.//span[@data-icon='wds-ic-send-filled']]"
@@ -166,11 +215,16 @@ class SenderWorker(QObject):
                         sleep(random.uniform(1.5, 3.0)); click_btn.click(); sleep(random.uniform(4.0, 7.0))
                         self.log_message.emit(f"✓ Mensaje enviado a: {variable_display_name}")
                         count_sent += 1; message_sent_successfully = True
-                    except TimeoutException: self.log_message.emit(f"Error: Botón enviar no encontrado/clicable para {variable_display_name}.")
-                    except Exception as send_e: self.log_message.emit(f"Error inesperado al enviar a {variable_display_name}: {send_e}")
+                    except TimeoutException: 
+                        self.log_message.emit(f"Error: Botón enviar no encontrado/clicable para {variable_display_name}.")
+                        self._log_failure(numero_dest, nombre_dest, "Timeout Botón Enviar", "No se encontró el botón de enviar en 40s.") # <--- Log
+                    except Exception as send_e: 
+                        self.log_message.emit(f"Error inesperado al enviar a {variable_display_name}: {send_e}")
+                        self._log_failure(numero_dest, nombre_dest, "Error Inesperado (Envío)", send_e) # <--- Log
 
                 except Exception as e:
                     self.log_message.emit(f"Fallo grave procesando {variable_display_name}: {e}")
+                    self._log_failure(numero_dest, nombre_dest, "Fallo Grave (Procesando)", e) # <--- Log
                     self.log_message.emit(traceback.format_exc())
 
                 if not message_sent_successfully: count_failed += 1
@@ -179,7 +233,19 @@ class SenderWorker(QObject):
                 # self.log_message.emit(f"...pausando {sleep_time:.1f}s...") # Log opcional
                 sleep(sleep_time)
 
+            # --- Modificado: Mensaje final y limpieza de log vacío ---
             self.log_message.emit(f"Proceso finalizado. Enviados: {count_sent}, Fallidos/Saltados: {count_failed} de {self.total_messages}.")
+            if count_failed > 0:
+                self.log_message.emit(f"Se generó un log de errores en: {self.log_file_path}")
+            else:
+                # Borrar el log si no hubo errores
+                try:
+                    if os.path.exists(self.log_file_path):
+                        os.remove(self.log_file_path)
+                    self.log_message.emit("Proceso finalizado sin errores. Log vacío eliminado.")
+                except Exception as e:
+                    self.log_message.emit(f"No se pudo borrar log vacío: {e}")
+            # --- Fin de Modificado ---
 
         except Exception as e:
             self.log_message.emit(f"Error crítico en envío masivo: {e}")
@@ -222,6 +288,10 @@ class SenderModel(QObject):
         self._file_path = ""
         self._worker = None
         self._thread = None
+        # --- Añadido ---
+        self.logs_dir = os.path.join(os.getcwd(), "logs")
+        os.makedirs(self.logs_dir, exist_ok=True)
+        # --- Fin de añadido ---
 
     def set_file_path(self, path):
         if path and os.path.exists(path):
@@ -235,6 +305,12 @@ class SenderModel(QObject):
 
     def get_file_path(self):
         return self._file_path
+
+    # --- Añadido ---
+    def get_logs_directory(self):
+        """Devuelve la ruta a la carpeta de logs."""
+        return self.logs_dir
+    # --- Fin de añadido ---
 
     def start_process(self, static_vars, template_message, dynamic_columns):
         if self._thread and self._thread.isRunning():
@@ -253,11 +329,7 @@ class SenderModel(QObject):
         self._worker.log_message.connect(self.status_update)
         self._worker.progress.connect(self.progress_update)
         self._worker.ask_login.connect(self.ask_login_confirmation)
-        # Cuando el worker termine (finished), el modelo también emitirá process_finished
-        # y limpiará el hilo
         self._worker.finished.connect(self._on_worker_finished)
-
-        # Conectar inicio del hilo a la inicialización del worker
         self._thread.started.connect(self._worker.run_initialization)
 
         self._thread.start()
@@ -265,7 +337,6 @@ class SenderModel(QObject):
     def confirm_login_and_continue(self):
         if self._worker and self._thread and self._thread.isRunning():
             self.status_update.emit("Confirmación recibida, continuando envío...")
-            # Llamar a continue_sending_messages en el hilo del worker
             QMetaObject.invokeMethod(self._worker, "continue_sending_messages", Qt.QueuedConnection)
         else:
             self.status_update.emit("Error: No se puede continuar, el proceso no está activo.")
@@ -273,9 +344,7 @@ class SenderModel(QObject):
     def stop_process(self):
         if self._worker and self._thread and self._thread.isRunning():
             self.status_update.emit("Intentando detener el proceso...")
-            # Llamar a stop_process en el hilo del worker
             QMetaObject.invokeMethod(self._worker, "stop_process", Qt.QueuedConnection)
-            # La señal finished se encargará de la limpieza final
         else:
              self.status_update.emit("El proceso no está en ejecución.")
 

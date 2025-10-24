@@ -1,6 +1,8 @@
 # view.py
 import sys
 import os
+import platform
+import subprocess
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QWidget, QVBoxLayout,
     QLabel, QLineEdit, QTextEdit, QMessageBox, QProgressBar,
@@ -17,7 +19,11 @@ class MainView(QMainWindow):
     start_clicked = Signal()
     stop_clicked = Signal()
     confirm_login_clicked = Signal()
-    template_text_changed = Signal(str) # Emite el nuevo texto de la plantilla
+    template_text_changed = Signal(str) 
+    
+    # --- Añadido ---
+    open_logs_clicked = Signal() # Señal para abrir carpeta de logs
+    # --- Fin de añadido ---
 
     def __init__(self):
         super().__init__()
@@ -30,7 +36,7 @@ class MainView(QMainWindow):
 
         # --- Sección 1: Carga de Archivo ---
         self.btn_load_file = QPushButton("Cargar Archivo de Destinatarios (.txt o .csv)")
-        self.btn_load_file.clicked.connect(self.load_file_clicked) # Conecta a la señal
+        self.btn_load_file.clicked.connect(self.load_file_clicked)
         self.lbl_file_path = QLabel("Archivo no cargado.")
         self.layout.addWidget(self.btn_load_file)
         self.layout.addWidget(self.lbl_file_path)
@@ -38,7 +44,9 @@ class MainView(QMainWindow):
         # --- Sección 2: Variables Estáticas ---
         self.static_vars_inputs = {}
         static_vars_layout = QVBoxLayout()
-        static_vars_layout.addWidget(QLabel("Variables Estáticas:"))
+        # --- Modificado: Añadido texto informativo ---
+        static_vars_layout.addWidget(QLabel("Variables Estáticas (Opcionales):"))
+        # --- Fin de Modificado ---
         static_vars_to_add = ["minombre", "miempresa"]
         for var_name in static_vars_to_add:
             hbox = QHBoxLayout(); label = QLabel(f"{var_name}:"); line_edit = QLineEdit()
@@ -51,10 +59,8 @@ class MainView(QMainWindow):
         self.txt_template = QTextEdit()
         self.txt_template.setPlaceholderText("Ej: Hola {nombre}, de {miempresa}...")
         self.txt_template.setMinimumHeight(100)
-        # Conecta textChanged a un lambda que emite la señal template_text_changed
         self.txt_template.textChanged.connect(lambda: self.template_text_changed.emit(self.txt_template.toPlainText()))
         self.layout.addWidget(self.txt_template)
-
         self.lbl_expected_format = QLabel("Formato esperado del archivo: numero;<variables_dinámicas>;")
         self.lbl_expected_format.setStyleSheet("font-style: italic; color: grey;")
         self.layout.addWidget(self.lbl_expected_format)
@@ -63,29 +69,34 @@ class MainView(QMainWindow):
         self.lbl_login_status = QLabel("Listo para iniciar.")
         self.lbl_login_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.addWidget(self.lbl_login_status)
-
         self.btn_confirm_login = QPushButton("Ya Escaneé QR y Cargaron Chats, Continuar Envío")
-        self.btn_confirm_login.clicked.connect(self.confirm_login_clicked) # Conecta a la señal
+        self.btn_confirm_login.clicked.connect(self.confirm_login_clicked)
         self.btn_confirm_login.setVisible(False)
         self.layout.addWidget(self.btn_confirm_login)
-
         self.btn_start = QPushButton("Iniciar Proceso y Abrir WhatsApp Web")
-        self.btn_start.clicked.connect(self.start_clicked) # Conecta a la señal
+        self.btn_start.clicked.connect(self.start_clicked)
         self.btn_stop = QPushButton("Detener Envío")
-        self.btn_stop.clicked.connect(self.stop_clicked) # Conecta a la señal
+        self.btn_stop.clicked.connect(self.stop_clicked)
         self.btn_stop.setEnabled(False)
-
         buttons_layout = QHBoxLayout()
         buttons_layout.addWidget(self.btn_start)
         buttons_layout.addWidget(self.btn_stop)
         self.layout.addLayout(buttons_layout)
-
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
         self.layout.addWidget(self.progress_bar)
 
         # --- Sección 5: Log ---
-        self.layout.addWidget(QLabel("Log:"))
+        # --- Modificado: Añadir botón de logs ---
+        log_header_layout = QHBoxLayout()
+        log_header_layout.addWidget(QLabel("Log:"))
+        log_header_layout.addStretch()
+        self.btn_open_logs = QPushButton("📂 Abrir Carpeta de Logs")
+        self.btn_open_logs.clicked.connect(self.open_logs_clicked) # Conectar señal
+        log_header_layout.addWidget(self.btn_open_logs)
+        self.layout.addLayout(log_header_layout) # Añadir el layout horizontal
+        # --- Fin de Modificado ---
+        
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         self.log_area.setMinimumHeight(150)
@@ -139,8 +150,23 @@ class MainView(QMainWindow):
     def show_warning(self, title, message):
         QMessageBox.warning(self, title, message)
 
-    # --- Manejo de cierre (el Controlador podría conectarse a esto si necesita lógica extra) ---
-    # close_signal = Signal() # Opcional: señal si el controlador necesita saber del cierre
-    # def closeEvent(self, event):
-    #     self.close_signal.emit()
-    #     super().closeEvent(event) # Llama al comportamiento por defecto
+    # --- Añadido: Slot para abrir carpeta ---
+    @Slot(str)
+    def open_logs_folder(self, logs_path):
+        """Abre la carpeta de logs en el explorador de archivos."""
+        try:
+            if not os.path.exists(logs_path):
+                self.show_warning("Error", f"La carpeta de logs no existe en: {logs_path}")
+                os.makedirs(logs_path) # Intentar crearla por si acaso
+                return
+
+            system = platform.system()
+            if system == "Windows":
+                os.startfile(logs_path)
+            elif system == "Darwin": # macOS
+                subprocess.run(["open", logs_path])
+            else: # Linux
+                subprocess.run(["xdg-open", logs_path])
+        except Exception as e:
+            self.show_warning("Error al abrir carpeta", f"No se pudo abrir la carpeta: {e}")
+    # --- Fin de añadido ---
