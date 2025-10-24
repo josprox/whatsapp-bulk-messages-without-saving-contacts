@@ -15,11 +15,11 @@ from PySide6.QtGui import QStandardItemModel, QStandardItem
 
 from selenium import webdriver
 from selenium.common import NoSuchElementException, TimeoutException
-from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.edge.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
 class SenderWorker(QObject):
     """
@@ -107,23 +107,28 @@ class SenderWorker(QObject):
             if self.total_messages == 0:
                 self.log_message.emit("No se encontraron destinatarios válidos."); self.finished.emit(); return
             self.log_message.emit(f"Se enviarán {self.total_messages} mensajes.")
-
+    
             # --- Inicio del navegador ---
-            self.log_message.emit("Iniciando navegador Chrome...")
+            self.log_message.emit("Iniciando navegador Edge (Modo Manual)...")
             try:
-                try:
-                    driver_path = ChromeDriverManager().install()
-                    service = Service(driver_path)
-                    self.log_message.emit(f"ChromeDriver listo: {driver_path}")
-                except Exception as driver_e:
-                     self.log_message.emit(f"Error ChromeDriver: {driver_e}. Intentando continuar...")
-                     service = Service()
-
-                options = webdriver.ChromeOptions()
-                self.driver = webdriver.Chrome(service=service, options=options)
+                # --- SOLUCIÓN MANUAL ---
+                driver_path = os.path.join(os.getcwd(), "msedgedriver.exe")
+                
+                if not os.path.exists(driver_path):
+                    self.log_message.emit(f"Error Fatal: No se encontró 'msedgedriver.exe' en la carpeta:")
+                    self.log_message.emit(f"{driver_path}")
+                    self.log_message.emit("Por favor, descarga el driver manual (ver Opción 2).")
+                    raise FileNotFoundError("Driver manual no encontrado")
+                    
+                service = Service(driver_path)
+                self.log_message.emit(f"EdgeDriver manual cargado desde: {driver_path}")
+                
+                options = webdriver.EdgeOptions()
+                self.driver = webdriver.Edge(service=service, options=options)
                 self.driver.get('https://web.whatsapp.com')
+
             except Exception as e:
-                self.log_message.emit(f"Error al iniciar Chrome: {e}")
+                self.log_message.emit(f"Error al iniciar Edge con driver manual: {e}")
                 self.log_message.emit(traceback.format_exc())
                 self.finished.emit(); return
 
