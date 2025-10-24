@@ -18,6 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from webdriver_manager.chrome import ChromeDriverManager
+from PySide6.QtGui import QStandardItemModel, QStandardItem
 
 class SenderWorker(QObject):
     """
@@ -28,6 +29,8 @@ class SenderWorker(QObject):
     progress = Signal(int)
     log_message = Signal(str)
     ask_login = Signal() # Señal para pedir al usuario que confirme el login en la GUI
+    # Emitirá la ruta del log y el número de fallos CUANDO termine
+    log_file_created = Signal(str, int)
 
     def __init__(self, file_path, static_vars, template_message, dynamic_file_columns):
         super().__init__()
@@ -237,6 +240,8 @@ class SenderWorker(QObject):
             self.log_message.emit(f"Proceso finalizado. Enviados: {count_sent}, Fallidos/Saltados: {count_failed} de {self.total_messages}.")
             if count_failed > 0:
                 self.log_message.emit(f"Se generó un log de errores en: {self.log_file_path}")
+                # --- Emitir la señal para el controlador ---
+                self.log_file_created.emit(self.log_file_path, count_failed)
             else:
                 # Borrar el log si no hubo errores
                 try:
@@ -282,6 +287,11 @@ class SenderModel(QObject):
     ask_login_confirmation = Signal()
     process_finished = Signal()
     file_loaded = Signal(str) # Emite el nombre base del archivo cargado
+
+    # Retransmite la señal del worker
+    log_available = Signal(str, int) 
+    # Emite el modelo de datos listo para la tabla
+    log_data_ready = Signal(QStandardItemModel)
 
     def __init__(self):
         super().__init__()
@@ -330,6 +340,8 @@ class SenderModel(QObject):
         self._worker.progress.connect(self.progress_update)
         self._worker.ask_login.connect(self.ask_login_confirmation)
         self._worker.finished.connect(self._on_worker_finished)
+        # --- Conectar la nueva señal del worker ---
+        self._worker.log_file_created.connect(self.log_available)
         self._thread.started.connect(self._worker.run_initialization)
 
         self._thread.start()
@@ -362,3 +374,39 @@ class SenderModel(QObject):
             self._thread = None
         self._worker = None
         self.process_finished.emit() # Notificar al controlador que todo terminó
+
+    @Slot(str)
+    def load_log_file(self, file_path):
+        """Lee el archivo CSV de log y lo convierte en un QStandardItemModel."""
+        self.status_update.emit(f"Cargando log de errores desde: {file_path}")
+        model = QStandardItemModel()
+        try:
+            if not file_path or not os.path.exists(file_path):
+                raise FileNotFoundError("El archivo de log no se encontró.")
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f, delimiter=';')
+                
+                # Leer cabecera
+                headers = next(reader)
+                model.setHorizontalHeaderLabels(headers)
+                
+                # Leer datos
+                for row in reader:
+                    # Asegurarse de que la fila no esté vacía
+                    if not any(field.strip() for field in row):
+                        continue 
+                        
+                    items = [QStandardItem(field) for field in row]
+                    model.appendRow(items)
+            
+            # Emitir el modelo listo
+            self.log_data_ready.emit(model)
+            
+        except StopIteration:
+            self.status_update.emit("Log de errores vacío (solo cabecera).")
+            # Opcional: emitir un modelo solo con cabeceras si lo deseas
+            # self.log_data_ready.emit(model) 
+        except Exception as e:
+            self.status_update.emit(f"Error crítico al leer el archivo de log: {e}")
+            self.log_message.emit(traceback.format_exc())

@@ -3,10 +3,11 @@ import re
 import os
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtGui import QStandardItemModel
 
 # Importar Modelo y Vista
 from model import SenderModel
-from view import MainView
+from view import MainView, LogViewerDialog
 
 class AppController(QObject):
     """
@@ -16,6 +17,7 @@ class AppController(QObject):
         super().__init__()
         self._model = model
         self._view = view
+        self._log_viewer_dialog = None
 
         # Conectar señales de la Vista a slots del Controlador
         self._view.load_file_clicked.connect(self.handle_load_file)
@@ -36,6 +38,11 @@ class AppController(QObject):
         self._model.ask_login_confirmation.connect(self.handle_ask_login)
         self._model.process_finished.connect(self.handle_process_finished)
         self._model.file_loaded.connect(self._view.set_file_label)
+
+        # Cuando el log está disponible (al final del proceso)
+        self._model.log_available.connect(self.handle_log_available)
+        # Cuando el modelo de datos del log está listo para mostrarse
+        self._model.log_data_ready.connect(self.show_log_viewer)
 
         # Actualizar formato inicial
         self.handle_template_change(self._view.get_template_text())
@@ -144,3 +151,40 @@ class AppController(QObject):
         logs_dir = self._model.get_logs_directory()
         self._view.open_logs_folder(logs_dir) # Llama al nuevo slot de la vista
     
+    @Slot(str, int)
+    def handle_log_available(self, file_path, error_count):
+        """
+        Se activa cuando el worker termina y reporta que hay un log de errores.
+        Le pide al modelo que cargue ese archivo.
+        """
+        self._view.update_log(f"Proceso terminado con {error_count} errores.")
+        
+        # Mostrar un popup informativo no bloqueante (o show_warning si prefieres)
+        QMessageBox.information(
+            self._view,
+            "Proceso Terminado",
+            f"El proceso finalizó con {error_count} errores.\nSe cargará el visor de logs."
+        )
+        
+        # Pedir al modelo que lea el archivo y prepare los datos
+        self._model.load_log_file(file_path)
+
+    @Slot(QStandardItemModel)
+    def show_log_viewer(self, log_model_data):
+        """
+        Se activa cuando el modelo ha terminado de leer el log y
+        tiene los datos listos (QStandardItemModel).
+        """
+        if log_model_data.rowCount() == 0:
+            self._view.update_log("El log de errores estaba vacío, no se mostrará el visor.")
+            return
+
+        # Crear el diálogo si es la primera vez
+        if not self._log_viewer_dialog:
+            self._log_viewer_dialog = LogViewerDialog(self._view) # Pasa la vista principal como padre
+            
+        # Asignar el modelo de datos a la tabla del diálogo
+        self._log_viewer_dialog.set_model(log_model_data)
+        
+        # Mostrar el diálogo (exec() lo hace modal)
+        self._log_viewer_dialog.exec()

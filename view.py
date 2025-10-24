@@ -6,7 +6,8 @@ import subprocess
 from PySide6.QtWidgets import (
     QMainWindow, QPushButton, QWidget, QVBoxLayout,
     QLabel, QLineEdit, QTextEdit, QMessageBox, QProgressBar,
-    QHBoxLayout, QFileDialog, QApplication, QScrollArea
+    QHBoxLayout, QFileDialog, QApplication, QScrollArea,
+    QDialog, QTableView, QDialogButtonBox, QHeaderView
 )
 from PySide6.QtCore import Qt, Signal, Slot
 
@@ -170,3 +171,36 @@ class MainView(QMainWindow):
         except Exception as e:
             self.show_warning("Error al abrir carpeta", f"No se pudo abrir la carpeta: {e}")
     # --- Fin de añadido ---
+
+class LogViewerDialog(QDialog):
+    """
+    Una ventana de diálogo modal para mostrar los logs de errores en una tabla.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Visor de Errores del Log")
+        self.setMinimumSize(700, 400) # Tamaño mínimo
+        self.setModal(True) # Bloquea la ventana principal
+
+        layout = QVBoxLayout(self)
+
+        # 1. La tabla
+        self.table_view = QTableView()
+        self.table_view.setSortingEnabled(True)
+        self.table_view.setAlternatingRowColors(True)
+        self.table_view.setEditTriggers(QTableView.EditTrigger.NoEditTriggers) # Solo lectura
+        layout.addWidget(self.table_view)
+
+        # 2. Botón de OK
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
+
+    @Slot("QAbstractItemModel") # Nota: Necesitarás importar esto en el controlador
+    def set_model(self, model):
+        """Recibe el modelo de datos (preparado por el Modelo) y lo muestra."""
+        self.table_view.setModel(model)
+        # Ajustar columnas al contenido
+        self.table_view.resizeColumnsToContents()
+        # Estirar la última columna (Detalle_Error)
+        self.table_view.horizontalHeader().setStretchLastSection(True)
