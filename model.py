@@ -9,6 +9,7 @@ import traceback
 import datetime
 import csv
 import glob
+import sys
 
 from PySide6.QtCore import QObject, Signal, Slot, QThread, QMetaObject, Qt
 from PySide6.QtGui import QStandardItemModel, QStandardItem
@@ -69,6 +70,30 @@ class SenderWorker(QObject):
         except Exception as e:
             self.log_message.emit(f"ADVERTENCIA: No se pudo escribir en log: {e}")
 
+    @staticmethod
+    def resource_path(relative_path):
+        """ Obtiene la ruta absoluta al recurso, funciona para desarrollo y para PyInstaller """
+        try:
+            if getattr(sys, 'frozen', False):
+                # Si la aplicación está "congelada" por PyInstaller
+                if hasattr(sys, '_MEIPASS'):
+                    # Modo --onefile: los datos están en una carpeta temporal _MEIPASS
+                    base_path = sys._MEIPASS
+                else:
+                    # Modo de carpeta: los datos están junto al ejecutable
+                    base_path = os.path.dirname(sys.executable)
+            else:
+                # Si se ejecuta como un script normal .py
+                # __file__ es la ruta al script actual
+                base_path = os.path.dirname(os.path.abspath(__file__))
+                
+            return os.path.join(base_path, relative_path)
+        
+        except Exception as e:
+            # Fallback por si algo sale mal
+            print(f"Error al obtener resource_path para {relative_path}: {e}")
+            return os.path.join(os.path.abspath("."), relative_path)
+
     @Slot()
     def run_initialization(self):
         """Inicia el proceso: lee archivo, crea log, abre navegador y emite ask_login."""
@@ -110,9 +135,9 @@ class SenderWorker(QObject):
     
             # --- Inicio del navegador ---
             self.log_message.emit("Iniciando navegador Edge (Modo Manual)...")
+            # --- SOLUCIÓN MANUAL ---
             try:
-                # --- SOLUCIÓN MANUAL ---
-                driver_path = os.path.join(os.getcwd(), "msedgedriver.exe")
+                driver_path = self.resource_path("msedgedriver.exe")
                 
                 if not os.path.exists(driver_path):
                     self.log_message.emit(f"Error Fatal: No se encontró 'msedgedriver.exe' en la carpeta:")
@@ -125,6 +150,7 @@ class SenderWorker(QObject):
                 
                 options = webdriver.EdgeOptions()
                 self.driver = webdriver.Edge(service=service, options=options)
+                self.driver.get('https://web.whatsapp.com')
                 self.driver.get('https://web.whatsapp.com')
 
             except Exception as e:

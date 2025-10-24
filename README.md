@@ -93,5 +93,5 @@ Hola buenas tardes {nombre}, te está atendiendo {minombre} de la {miempresa}, e
 ### Compilar
 Puede compilar la aplicación instalando pyinstaller y usando el siguiente comando
 ```bash
-pyinstaller --windowed --name="WhatsApp Bulk Sender" --ico="img/AuraSend.ico" main.py
+pyinstaller --windowed --name="WhatsApp Bulk Sender" --ico="img/AuraSend.ico" --add-data "msedgedriver.exe;." --add-data "img;img" main.py
 ```
