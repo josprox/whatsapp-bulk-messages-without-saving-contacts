@@ -31,7 +31,7 @@ class MainView(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("WhatsApp Bulk Sender (MVC)")
+        self.setWindowTitle("AuraSend - Joss Dev")
         self.setGeometry(100, 100, 700, 750) # Ventana un poco más alta
 
         # --- Contenedor Principal: Pestañas ---
